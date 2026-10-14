@@ -1,0 +1,1674 @@
+--[[
+    SORU SUITE v10 — Full Build
+    ESP · Hitbox · Fast Attack · Silent Aim · Fruit (10 Vectors) · Flashstep · Kill Feed · Instant TP
+--]]
+
+-- ═══════════════════════════════════════════════════════════
+-- SERVICES
+-- ═══════════════════════════════════════════════════════════
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui           = game:GetService("CoreGui")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local Workspace         = game:GetService("Workspace")
+local Camera            = Workspace.CurrentCamera
+local lp                = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════
+-- 🌀 FRUIT VECTORS (10 خيارات)
+-- ═══════════════════════════════════════════════════════════
+local VECTORS = {
+    { name = "⬇️ Down",         icon = "⬇️", vector = Vector3.new(0, -1e38, 0),                        desc = "ينزل تحت الخريطة" },
+    { name = "⬆️ Up",           icon = "⬆️", vector = Vector3.new(0, 1e38, 0),                         desc = "يطير للسما" },
+    { name = "↙️ Diagonal",     icon = "↙️", vector = Vector3.new(-1e38, -1e38, -1e38),                desc = "طيران قطري خارق" },
+    { name = "↘️ Mixed",        icon = "↘️", vector = Vector3.new(1e38, -1e38, 1e38),                  desc = "جنون" },
+    { name = "🎯 Classic",      icon = "🎯", vector = Vector3.new(9e30, 9e30, 9e30),                   desc = "Void الكلاسيكي" },
+    { name = "➡️ Forward",      icon = "➡️", vector = Vector3.new(1e38, 0, 1e38),                      desc = "للأمام" },
+    { name = "⬅️ Backward",     icon = "⬅️", vector = Vector3.new(-1e38, 0, -1e38),                    desc = "للخلف" },
+    { name = "➡️ Right",        icon = "➡️", vector = Vector3.new(1e38, 0, 0),                         desc = "يمين" },
+    { name = "⬅️ Left",         icon = "⬅️", vector = Vector3.new(-1e38, 0, 0),                        desc = "يسار" },
+    { name = "🎲 Random",       icon = "🎲", vector = nil,                                              desc = "عشوائي كل ضربة" },
+}
+
+local function randomVector()
+    local s = 1e38
+    local function sgn() return math.random(0, 1) == 1 and 1 or -1 end
+    return Vector3.new(sgn() * s, sgn() * s, sgn() * s)
+end
+
+local function getActiveVector()
+    local v = VECTORS[CONFIG.FruitVectorIdx]
+    if not v then return Vector3.new(9e30, 9e30, 9e30), "?" end
+    local vec = v.vector
+    if not vec then vec = randomVector() end
+    return vec, v.name
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- CONFIG
+-- ═══════════════════════════════════════════════════════════
+local CONFIG = {
+    -- ESP
+    ESPEnabled       = true,
+    ESPName          = true,
+    ESPLevel         = true,
+    ESPBounty        = true,
+    ESPFruit         = true,
+    ESPDistance      = true,
+    ESPHP            = true,
+    ESPTeam          = true,
+    ESPPvP           = true,
+    ESPHighlight     = false,
+    ESPHighlightColor= Color3.fromRGB(255, 0, 0),
+    ESPTextSize      = 13,
+
+    -- Hitbox
+    HitboxEnabled    = false,
+    HitboxSize       = 8,
+    HitboxNPCs       = true,
+    HitboxTeamCheck  = true,
+
+    -- Fast Attack (Melee)
+    AttackEnable     = false,
+    AttackRange      = 120,
+    AttackDelay      = 0.1,
+    TargetNPCs       = true,
+    TargetPlayers    = false,
+
+    -- 🌀 Fruit M1 (10 Vectors)
+    FruitM1Enabled      = false,
+    FruitM1Interval     = 0.1,
+    FruitM1Range        = 500,
+    FruitM1TargetNPCs   = true,
+    FruitM1TargetPlayers= true,
+    FruitCombo          = 5,
+    FruitBool           = false,
+    FruitVectorIdx      = 1,
+    FruitAutoCycle      = false,
+    FruitCycleSpeed     = 5,
+
+    -- Silent Aim
+    SilentAimEnabled    = false,
+    SilentAimPlayers    = true,
+    SilentAimNPCs       = false,
+    SilentAimPrediction = true,
+    SilentAimZSkillM1   = true,
+    SilentAimHighlight  = true,
+    SilentAimMaxRange   = 1000,
+    SilentAimPredAmount = 0.1,
+
+    -- SORU AIM
+    SORU_AimEnabled  = false,
+
+    -- Flashstep
+    InfFlashstep     = false,
+
+    -- Kill Feed
+    KillFeedEnable   = true,
+
+    -- Instant TP
+    TpEnabled        = false,
+    TpMaxDistance    = 1000,
+    TpInterval       = 0.1,
+    TpKey            = Enum.KeyCode.T,
+
+    -- Theme
+    ThemeColor       = Color3.fromRGB(0, 255, 150),
+}
+getgenv().SORU_SUITE = CONFIG
+getgenv().soruAimEnabled = false
+getgenv().SORU_VECTORS = VECTORS
+
+-- ═══════════════════════════════════════════════════════════
+-- STATE
+-- ═══════════════════════════════════════════════════════════
+local State = {
+    Char = nil, Root = nil, Hum = nil,
+    RegisterHit = nil, RegisterAttack = nil,
+    HitboxOriginals = setmetatable({}, {__mode="k"}),
+    HitboxThread = nil,
+    ESPCache = {},
+    ESPFolder = nil,
+    AttackConn = nil,
+    FruitThread = nil,
+    PlayerLastHP = {},
+    TpThread = nil,
+    TpTarget = nil,
+    TpTargetName = nil,
+    TpCount = 0,
+    FruitCycleCounter = 0,
+    SA = {
+        PlayerTarget = nil, PlayerPos = nil,
+        NPCTarget = nil, NPCPos = nil,
+        CurrentTool = nil, Highlight = nil, HighlightType = nil,
+        RenderConn = nil, HooksInstalled = false, SORU_HookInstalled = false,
+        CharacterConns = {},
+    },
+}
+
+local function onChar(c)
+    State.Char = c
+    State.Root = c:WaitForChild("HumanoidRootPart", 10)
+    State.Hum = c:WaitForChild("Humanoid", 10)
+    task.wait(0.5)
+    if CONFIG.InfFlashstep and c then
+        c:SetAttribute("FlashstepCooldown", 1)
+    end
+    for _, conn in ipairs(State.SA.CharacterConns) do pcall(function() conn:Disconnect() end) end
+    State.SA.CharacterConns = {}
+    for _, child in ipairs(c:GetChildren()) do
+        if child:IsA("Tool") then State.SA.CurrentTool = child end
+    end
+    table.insert(State.SA.CharacterConns, c.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then State.SA.CurrentTool = child end
+    end))
+    table.insert(State.SA.CharacterConns, c.ChildRemoved:Connect(function(child)
+        if child == State.SA.CurrentTool then State.SA.CurrentTool = nil end
+    end))
+end
+if lp.Character then onChar(lp.Character) end
+lp.CharacterAdded:Connect(onChar)
+
+task.spawn(function()
+    pcall(function()
+        local Net = ReplicatedStorage:WaitForChild("Modules", 10):WaitForChild("Net", 10)
+        State.RegisterHit    = Net:WaitForChild("RE/RegisterHit", 10)
+        State.RegisterAttack = Net:WaitForChild("RE/RegisterAttack", 10)
+    end)
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- FAST ATTACK (Melee)
+-- ═══════════════════════════════════════════════════════════
+local function fireAttack(target)
+    if not target or not State.RegisterHit or not State.RegisterAttack then return end
+    local head = target:FindFirstChild("Head") or target:FindFirstChild("HumanoidRootPart")
+    if not head then return end
+    pcall(function()
+        State.RegisterAttack:FireServer(0)
+        State.RegisterHit:FireServer(head, {{target, head}})
+    end)
+end
+
+local function startAttack()
+    if State.AttackConn then State.AttackConn:Disconnect() end
+    State.AttackConn = RunService.Heartbeat:Connect(function()
+        if not CONFIG.AttackEnable then return end
+        if not (State.RegisterHit and State.RegisterAttack) then return end
+        task.wait(CONFIG.AttackDelay)
+        local myRoot = State.Root
+        if not myRoot then return end
+        if CONFIG.TargetNPCs then
+            local en = Workspace:FindFirstChild("Enemies")
+            if en then
+                for _, npc in ipairs(en:GetChildren()) do
+                    if npc.Name == "Player" then continue end
+                    local hrp = npc:FindFirstChild("HumanoidRootPart")
+                    local hum = npc:FindFirstChildOfClass("Humanoid")
+                    if hrp and hum and hum.Health > 0 then
+                        if (hrp.Position - myRoot.Position).Magnitude <= CONFIG.AttackRange then
+                            fireAttack(npc)
+                        end
+                    end
+                end
+            end
+        end
+        if CONFIG.TargetPlayers then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and p.Character then
+                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                    if hrp and hum and hum.Health > 0 then
+                        if (hrp.Position - myRoot.Position).Magnitude <= CONFIG.AttackRange then
+                            fireAttack(p.Character)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    print("[SORU] ⚔️ Fast Attack: ON | Range:", CONFIG.AttackRange)
+end
+
+local function stopAttack()
+    CONFIG.AttackEnable = false
+    if State.AttackConn then State.AttackConn:Disconnect(); State.AttackConn = nil end
+    print("[SORU] 🛑 Fast Attack: OFF")
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- FRUIT HELPERS
+-- ═══════════════════════════════════════════════════════════
+local function getPlayerFruit()
+    local char = lp.Character
+    if not char then return nil end
+    for _, tool in pairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool.ToolTip == "Blox Fruit" then return tool end
+    end
+    local backpack = lp:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in pairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") and tool.ToolTip == "Blox Fruit" then return tool end
+        end
+    end
+    return nil
+end
+
+local function getMaxCombo(tool)
+    if not tool then return 5 end
+    local n = tool.Name
+    if n == "T-Rex-T-Rex" then return 4 end
+    if n == "Blade-Blade" then return 2 end
+    if n == "Pain-Pain" then return 4 end
+    if n == "Control-Control" then return 4 end
+    if n == "Gas-Gas" then return 5 end
+    if n == "Dragon-Dragon" then
+        local char = lp.Character
+        return (char and char:FindFirstChild("DragonHybrid")) and 5 or 3
+    end
+    return 5
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- 🌀 FRUIT M1 — 10 Vectors
+-- ═══════════════════════════════════════════════════════════
+local function startFruitM1()
+    CONFIG.FruitM1Enabled = true
+    if State.FruitThread then task.cancel(State.FruitThread) end
+
+    State.FruitThread = task.spawn(function()
+        while CONFIG.FruitM1Enabled do
+            task.wait(CONFIG.FruitM1Interval)
+
+            local fruit = getPlayerFruit()
+            if not fruit then continue end
+
+            -- 🦊 Kitsune Support
+            if fruit.Name:find("Kitsune") then
+                local m1 = fruit:FindFirstChild("M1Active")
+                if m1 and m1:IsA("BoolValue") and not m1.Value then
+                    pcall(function() m1.Value = true end)
+                end
+
+                local char = lp.Character
+                local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+                if not myHRP then continue end
+                local myPos = myHRP.Position
+
+                local main = fruit:FindFirstChild("RemoteEvent")
+                local lc = fruit:FindFirstChild("LeftClickRemote")
+
+                if CONFIG.FruitM1TargetPlayers then
+                    for _, player in pairs(Players:GetPlayers()) do
+                        if player ~= lp and player.Character then
+                            local targetHRP = player.Character:FindFirstChild("HumanoidRootPart")
+                            local hum = player.Character:FindFirstChild("Humanoid")
+                            if targetHRP and hum and hum.Health > 0
+                                and (targetHRP.Position - myPos).Magnitude < CONFIG.FruitM1Range then
+                                local dir = (targetHRP.Position - myPos).Unit
+                                local dirVec = Vector3.new(dir.X, dir.Y, dir.Z)
+                                if main then pcall(function() main:FireServer("M1", 1, true) end) end
+                                if lc then pcall(function() lc:FireServer(dirVec, 1, true) end) end
+                            end
+                        end
+                    end
+                end
+
+                if CONFIG.FruitM1TargetNPCs then
+                    local enemiesFolder = Workspace:FindFirstChild("Enemies")
+                    if enemiesFolder then
+                        for _, npc in pairs(enemiesFolder:GetChildren()) do
+                            local targetHRP = npc:FindFirstChild("HumanoidRootPart")
+                            local hum = npc:FindFirstChild("Humanoid")
+                            if targetHRP and hum and hum.Health > 0
+                                and (targetHRP.Position - myPos).Magnitude < CONFIG.FruitM1Range then
+                                local dir = (targetHRP.Position - myPos).Unit
+                                local dirVec = Vector3.new(dir.X, dir.Y, dir.Z)
+                                if main then pcall(function() main:FireServer("M1", 1, true) end) end
+                                if lc then pcall(function() lc:FireServer(dirVec, 1, true) end) end
+                            end
+                        end
+                    end
+                end
+                continue
+            end
+
+            -- فواكه عادية (10 Vectors)
+            local remote = fruit:FindFirstChild("LeftClickRemote")
+            if not remote then continue end
+
+            local char = lp.Character
+            local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+            if not myHRP then continue end
+            local myPos = myHRP.Position
+
+            local vector = getActiveVector()
+            local sent = 0
+
+            if CONFIG.FruitM1TargetPlayers then
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= lp and player.Character then
+                        local targetHRP = player.Character:FindFirstChild("HumanoidRootPart")
+                        local hum = player.Character:FindFirstChild("Humanoid")
+                        if targetHRP and hum and hum.Health > 0
+                            and (targetHRP.Position - myPos).Magnitude < CONFIG.FruitM1Range then
+                            pcall(function()
+                                remote:FireServer(vector, CONFIG.FruitCombo, CONFIG.FruitBool)
+                            end)
+                            sent = sent + 1
+                        end
+                    end
+                end
+            end
+
+            if CONFIG.FruitM1TargetNPCs then
+                local enemiesFolder = Workspace:FindFirstChild("Enemies")
+                if enemiesFolder then
+                    for _, npc in pairs(enemiesFolder:GetChildren()) do
+                        local targetHRP = npc:FindFirstChild("HumanoidRootPart")
+                        local hum = npc:FindFirstChild("Humanoid")
+                        if targetHRP and hum and hum.Health > 0
+                            and (targetHRP.Position - myPos).Magnitude < CONFIG.FruitM1Range then
+                            pcall(function()
+                                remote:FireServer(vector, CONFIG.FruitCombo, CONFIG.FruitBool)
+                            end)
+                            sent = sent + 1
+                        end
+                    end
+                end
+            end
+
+            if CONFIG.FruitAutoCycle and sent > 0 then
+                State.FruitCycleCounter = State.FruitCycleCounter + 1
+                if State.FruitCycleCounter >= CONFIG.FruitCycleSpeed then
+                    State.FruitCycleCounter = 0
+                    CONFIG.FruitVectorIdx = (CONFIG.FruitVectorIdx % #VECTORS) + 1
+                    if _G.SORU_UpdateVectorUI then _G.SORU_UpdateVectorUI() end
+                end
+            end
+        end
+    end)
+
+    print("[SORU] 🍎 Fruit M1: ON | Vector:", VECTORS[CONFIG.FruitVectorIdx].name)
+end
+
+local function stopFruitM1()
+    CONFIG.FruitM1Enabled = false
+    if State.FruitThread then task.cancel(State.FruitThread); State.FruitThread = nil end
+    print("[SORU] 🛑 Fruit M1: OFF")
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- HITBOX
+-- ═══════════════════════════════════════════════════════════
+local HB_PARTS = {"HumanoidRootPart", "Head", "UpperTorso", "LowerTorso", "Torso"}
+
+local function expandHitbox(part)
+    if not part or not part:IsA("BasePart") then return end
+    if not State.HitboxOriginals[part] then
+        State.HitboxOriginals[part] = {
+            Size = part.Size, Transparency = part.Transparency, CanCollide = part.CanCollide,
+        }
+    end
+    local o = State.HitboxOriginals[part]
+    part.Size = o.Size * CONFIG.HitboxSize
+    part.Transparency = 1
+    part.CanCollide = false
+end
+
+local function restoreHitbox(part)
+    if not part or not part.Parent then return end
+    local o = State.HitboxOriginals[part]
+    if not o then return end
+    pcall(function()
+        part.Size = o.Size
+        part.Transparency = o.Transparency
+        part.CanCollide = o.CanCollide
+    end)
+    State.HitboxOriginals[part] = nil
+end
+
+local function startHitbox()
+    if State.HitboxThread then task.cancel(State.HitboxThread) end
+    State.HitboxThread = task.spawn(function()
+        while CONFIG.HitboxEnabled do
+            task.wait(0.1)
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and p.Character then
+                    local sameTeam = CONFIG.HitboxTeamCheck and p.Team and lp.Team and p.Team == lp.Team
+                    if not sameTeam then
+                        for _, name in ipairs(HB_PARTS) do
+                            local part = p.Character:FindFirstChild(name)
+                            if part then expandHitbox(part) end
+                        end
+                    end
+                end
+            end
+            if CONFIG.HitboxNPCs then
+                local en = Workspace:FindFirstChild("Enemies")
+                if en then
+                    for _, npc in ipairs(en:GetChildren()) do
+                        if npc:IsA("Model") and npc.Name ~= "Player" then
+                            for _, name in ipairs(HB_PARTS) do
+                                local part = npc:FindFirstChild(name)
+                                if part then expandHitbox(part) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    print("[SORU] 📦 Hitbox: ON | Size:", CONFIG.HitboxSize)
+end
+
+local function stopHitbox()
+    CONFIG.HitboxEnabled = false
+    if State.HitboxThread then task.cancel(State.HitboxThread); State.HitboxThread = nil end
+    for part in pairs(State.HitboxOriginals) do restoreHitbox(part) end
+    print("[SORU] 🛑 Hitbox: OFF")
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- INFINITE FLASHSTEP
+-- ═══════════════════════════════════════════════════════════
+task.spawn(function()
+    while task.wait(0.1) do
+        if CONFIG.InfFlashstep then
+            pcall(function()
+                local char = State.Char
+                if char then char:SetAttribute("FlashstepCooldown", 1) end
+            end)
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- INSTANT TP
+-- ═══════════════════════════════════════════════════════════
+local function getMyHRP()
+    local char = lp.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getTpPlayerList()
+    local list = {}
+    local myHrp = getMyHRP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character then
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp then
+                local dist = 0
+                if myHrp then
+                    dist = (hrp.Position - myHrp.Position).Magnitude
+                end
+                table.insert(list, {
+                    player = p,
+                    name = p.Name,
+                    health = math.floor(hum.Health),
+                    distance = math.floor(dist),
+                    inRange = dist <= CONFIG.TpMaxDistance,
+                })
+            end
+        end
+    end
+    table.sort(list, function(a, b) return a.distance < b.distance end)
+    return list
+end
+
+local function doInstantTP()
+    if not State.TpTarget then return false, "No target" end
+    local tChar = State.TpTarget.Character
+    if not tChar then return false, "Target left" end
+    local myHrp = getMyHRP()
+    if not myHrp then return false, "No character" end
+    local tHrp = tChar:FindFirstChild("HumanoidRootPart")
+    if not tHrp then return false, "No HRP" end
+
+    local dist = (tHrp.Position - myHrp.Position).Magnitude
+    if dist > CONFIG.TpMaxDistance then
+        return false, string.format("Too far (%.0f > %d)", dist, CONFIG.TpMaxDistance)
+    end
+
+    local tPos = tHrp.Position
+    local targetCF = CFrame.new(tPos, tPos + tHrp.CFrame.LookVector)
+
+    pcall(function()
+        myHrp.CFrame = targetCF
+        myHrp.Velocity = Vector3.zero
+        myHrp.AssemblyLinearVelocity = Vector3.zero
+    end)
+
+    State.TpCount = State.TpCount + 1
+    return true, string.format("TP'd to %s (%.0f studs)", State.TpTarget.Name, dist)
+end
+
+local function startTpLoop()
+    if State.TpThread then task.cancel(State.TpThread) end
+    State.TpThread = task.spawn(function()
+        while CONFIG.TpEnabled do
+            task.wait(CONFIG.TpInterval)
+            pcall(doInstantTP)
+        end
+    end)
+end
+
+local function stopTpLoop()
+    CONFIG.TpEnabled = false
+    if State.TpThread then
+        task.cancel(State.TpThread)
+        State.TpThread = nil
+    end
+end
+
+local function selectTpTarget(player)
+    if not player then return end
+    State.TpTarget = player
+    State.TpTargetName = player.Name
+end
+
+local function clearTpTarget()
+    State.TpTarget = nil
+    State.TpTargetName = nil
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == CONFIG.TpKey then
+        local ok, msg = doInstantTP()
+        if ok then print("[TP] " .. msg) else print("[TP] ❌ " .. msg) end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- SILENT AIM
+-- ═══════════════════════════════════════════════════════════
+local SA = State.SA
+local MouseRef = nil
+task.spawn(function()
+    pcall(function()
+        local MouseModule = ReplicatedStorage:FindFirstChild("Mouse")
+        if MouseModule and typeof(MouseModule) == "Instance" then
+            local ok, res = pcall(require, MouseModule)
+            if ok and type(res) == "table" then MouseRef = res end
+        end
+    end)
+end)
+
+local function getHRP(model)
+    if not model or not model:FindFirstChild("HumanoidRootPart") then return nil end
+    return model.HumanoidRootPart
+end
+
+local function getPredictedPosition(hrp)
+    if not hrp then return nil end
+    local humanoid = hrp.Parent:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return hrp.Position end
+    if not CONFIG.SilentAimPrediction or humanoid.WalkSpeed < 5 then return hrp.Position end
+    return hrp.Position + (hrp.Velocity * CONFIG.SilentAimPredAmount)
+end
+
+local function isAllyWithMe(targetplayer)
+    local myGui = lp:FindFirstChild("PlayerGui")
+    if not myGui then return false end
+    local scrolling = myGui:FindFirstChild("Main")
+        and myGui.Main:FindFirstChild("Allies")
+        and myGui.Main.Allies:FindFirstChild("Container")
+        and myGui.Main.Allies.Container:FindFirstChild("Allies")
+        and myGui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
+    if scrolling then
+        for _, frame in pairs(scrolling:GetDescendants()) do
+            if frame:IsA("ImageButton") and frame.Name == targetplayer.Name then return true end
+        end
+    end
+    return false
+end
+
+local function isSAEnemy(targetplayer)
+    if not targetplayer or targetplayer == lp then return false end
+    local myTeam, targetTeam = lp.Team, targetplayer.Team
+    if myTeam and targetTeam then
+        if myTeam.Name == "Pirates" and targetTeam.Name == "Marines" then return true end
+        if myTeam.Name == "Marines" and targetTeam.Name == "Pirates" then return true end
+        if myTeam.Name == "Pirates" and targetTeam.Name == "Pirates" then return not isAllyWithMe(targetplayer) end
+        if myTeam.Name == "Marines" and targetTeam.Name == "Marines" then return false end
+    end
+    return true
+end
+
+local function getClosestPlayerForSA(lpHRP)
+    if not lpHRP then return nil end
+    local closest, closestDist = nil, math.huge
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= lp and isSAEnemy(pl) and pl.Character and pl.Character.Parent then
+            local hum = pl.Character:FindFirstChildWhichIsA("Humanoid")
+            local hrp = getHRP(pl.Character)
+            if hum and hum.Health > 0 and hrp then
+                local d = (hrp.Position - lpHRP.Position).Magnitude
+                if d <= CONFIG.SilentAimMaxRange and d < closestDist then
+                    closestDist = d; closest = pl
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function getClosestNPCForSA(lpHRP)
+    if not lpHRP then return nil end
+    local enemiesFolder = Workspace:FindFirstChild("Enemies")
+    if not enemiesFolder then return nil end
+    local closest, closestDist = nil, math.huge
+    for _, npc in ipairs(enemiesFolder:GetChildren()) do
+        if npc:IsA("Model") then
+            local hum = npc:FindFirstChildWhichIsA("Humanoid")
+            local hrp = getHRP(npc)
+            if hum and hum.Health > 0 and hrp then
+                local d = (hrp.Position - lpHRP.Position).Magnitude
+                if d <= CONFIG.SilentAimMaxRange and d < closestDist then
+                    closestDist = d; closest = npc
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function applySAHighlight(model, kind)
+    if not CONFIG.SilentAimHighlight then return end
+    if not model then return end
+    if SA.Highlight and SA.Highlight.Adornee == model then return end
+    if SA.Highlight then SA.Highlight:Destroy(); SA.Highlight = nil end
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255, 255, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.Adornee = model
+    hl.Parent = model
+    SA.Highlight = hl
+    SA.HighlightType = kind
+end
+
+local function clearSAHighlight()
+    if SA.Highlight then SA.Highlight:Destroy(); SA.Highlight = nil; SA.HighlightType = nil end
+end
+
+local function isSkillReadyForTool(toolName)
+    if not toolName then return false end
+    local playerGui = lp:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+    local skillsFolder = playerGui:FindFirstChild("Main") and playerGui.Main:FindFirstChild("Skills")
+    if not skillsFolder then return false end
+    local toolFrame = skillsFolder:FindFirstChild(toolName)
+    if not toolFrame then return false end
+    for _, skillKey in ipairs({"Z","X","C","V"}) do
+        local skill = toolFrame:FindFirstChild(skillKey)
+        if skill and skill:FindFirstChild("Cooldown") and skill.Cooldown:IsA("Frame") then
+            if skill.Cooldown.Size.X.Scale == 1.0 then return true end
+        end
+    end
+    return false
+end
+
+local function startSARender()
+    if SA.RenderConn then return end
+    SA.RenderConn = RunService.RenderStepped:Connect(function()
+        if not CONFIG.SilentAimEnabled and not CONFIG.SORU_AimEnabled then return end
+        local lpChar = lp.Character
+        if not lpChar then return end
+        local lpHRP = lpChar:FindFirstChild("HumanoidRootPart")
+        if not lpHRP then return end
+        if not CONFIG.SilentAimPlayers and not CONFIG.SilentAimNPCs then return end
+
+        local targetModel, lookTargetPos = nil, nil
+        if CONFIG.SilentAimPlayers then
+            local tgt = getClosestPlayerForSA(lpHRP)
+            if tgt and tgt ~= lp and tgt.Character then
+                SA.PlayerTarget = tgt.Name
+                SA.PlayerPos = getPredictedPosition(getHRP(tgt.Character))
+                lookTargetPos = SA.PlayerPos
+                targetModel = tgt.Character
+                applySAHighlight(targetModel, "player")
+            else
+                SA.PlayerTarget, SA.PlayerPos = nil, nil
+            end
+        elseif SA.HighlightType == "player" then
+            SA.PlayerTarget, SA.PlayerPos = nil, nil
+            clearSAHighlight()
+        end
+        if CONFIG.SilentAimNPCs then
+            local npc = getClosestNPCForSA(lpHRP)
+            if npc then
+                SA.NPCTarget = npc.Name
+                SA.NPCPos = getPredictedPosition(getHRP(npc))
+                lookTargetPos = SA.NPCPos
+                if not targetModel then
+                    targetModel = npc
+                    applySAHighlight(targetModel, "NPC")
+                end
+            else
+                SA.NPCTarget, SA.NPCPos = nil, nil
+            end
+        elseif SA.HighlightType == "NPC" then
+            SA.NPCTarget, SA.NPCPos = nil, nil
+            clearSAHighlight()
+        end
+        if SA.CurrentTool and lookTargetPos and isSkillReadyForTool(SA.CurrentTool.Name) then
+            local lookVector = (Vector3.new(lookTargetPos.X, lpHRP.Position.Y, lookTargetPos.Z) - lpHRP.Position).Unit
+            lpHRP.CFrame = CFrame.new(lpHRP.Position, lpHRP.Position + lookVector)
+        end
+    end)
+end
+
+local function stopSARender()
+    if SA.RenderConn then SA.RenderConn:Disconnect(); SA.RenderConn = nil end
+    clearSAHighlight()
+end
+
+local function installSAHooks()
+    if SA.HooksInstalled then return end
+    SA.HooksInstalled = true
+    local ok, hookMeta = pcall(getrawmetatable, game)
+    if not ok or not hookMeta then return end
+    pcall(setreadonly, hookMeta, false)
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = (getnamecallmethod and getnamecallmethod():lower()) or ""
+        local args = {...}
+        local V1 = args[1]
+        local V2 = args[2]
+        if CONFIG.SilentAimEnabled and tostring(self) == "RemoteEvent" and method == "fireserver" then
+            if typeof(V1) == "Vector3" then
+                if CONFIG.SilentAimPlayers and SA.PlayerPos then
+                    return oldNamecall(self, SA.PlayerPos, V2, select(3, ...))
+                elseif CONFIG.SilentAimNPCs and SA.NPCPos then
+                    return oldNamecall(self, SA.NPCPos, V2, select(3, ...))
+                end
+            end
+            if CONFIG.SilentAimZSkillM1 and type(V1) == "string" and V1 == "TAP" then
+                if CONFIG.SilentAimPlayers and SA.PlayerPos then
+                    return oldNamecall(self, V1, SA.PlayerPos, nil, select(3, ...))
+                elseif CONFIG.SilentAimNPCs and SA.NPCPos then
+                    return oldNamecall(self, V1, SA.NPCPos, nil, select(3, ...))
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+    pcall(setreadonly, hookMeta, true)
+end
+
+local function installSAMouseSpoof()
+    if not MouseRef then return end
+    RunService.Heartbeat:Connect(function()
+        if not CONFIG.SilentAimEnabled or not CONFIG.SilentAimZSkillM1 then return end
+        if not (CONFIG.SilentAimPlayers or CONFIG.SilentAimNPCs) then return end
+        local targetCF = nil
+        if SA.PlayerPos then targetCF = CFrame.new(SA.PlayerPos)
+        elseif SA.NPCPos then targetCF = CFrame.new(SA.NPCPos) end
+        if targetCF then
+            pcall(function()
+                MouseRef.Hit = targetCF
+                MouseRef.Target = nil
+            end)
+        end
+    end)
+end
+
+local function installSORUAimHook()
+    if SA.SORU_HookInstalled then return end
+    SA.SORU_HookInstalled = true
+    local ok, mt = pcall(getrawmetatable, game)
+    if not ok or not mt then return end
+    local oldIndex = mt.__index
+    pcall(setreadonly, mt, false)
+    mt.__index = newcclosure(function(self, key)
+        if CONFIG.SORU_AimEnabled and (key == "Hit" or key == "Target") then
+            if self == lp:GetMouse() then
+                local targetHRP = nil
+                if SA.PlayerTarget then
+                    local pl = Players:FindFirstChild(SA.PlayerTarget)
+                    if pl and pl.Character then targetHRP = pl.Character:FindFirstChild("HumanoidRootPart") end
+                elseif SA.NPCTarget then
+                    local npcFolder = Workspace:FindFirstChild("Enemies")
+                    if npcFolder then
+                        local npc = npcFolder:FindFirstChild(SA.NPCTarget)
+                        if npc then targetHRP = npc:FindFirstChild("HumanoidRootPart") end
+                    end
+                end
+                if targetHRP then
+                    if key == "Hit" then return CFrame.new(targetHRP.Position) end
+                    if key == "Target" then return targetHRP end
+                elseif SA.PlayerPos then
+                    if key == "Hit" then return CFrame.new(SA.PlayerPos) end
+                    if key == "Target" then return nil end
+                elseif SA.NPCPos then
+                    if key == "Hit" then return CFrame.new(SA.NPCPos) end
+                    if key == "Target" then return nil end
+                end
+            end
+        end
+        return oldIndex(self, key)
+    end)
+    pcall(setreadonly, mt, true)
+end
+
+local function refreshSilentAim()
+    if CONFIG.SilentAimEnabled then
+        installSAHooks()
+        installSAMouseSpoof()
+    end
+    if CONFIG.SilentAimEnabled or CONFIG.SORU_AimEnabled then
+        startSARender()
+    else
+        stopSARender()
+    end
+    if CONFIG.SORU_AimEnabled then installSORUAimHook() end
+    getgenv().soruAimEnabled = CONFIG.SORU_AimEnabled
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- ESP
+-- ═══════════════════════════════════════════════════════════
+local function getTeamInfo(player)
+    if not player.Team then return "Unknown", Color3.fromRGB(255,255,255) end
+    if player.Team.Name == "Marines" then return "Marines", Color3.fromRGB(0, 170, 255) end
+    if player.Team.Name == "Pirates" then return "Pirates", Color3.fromRGB(255, 70, 70) end
+    return player.Team.Name, Color3.fromRGB(200, 200, 200)
+end
+
+local function removeESP(player)
+    if State.ESPCache[player] then
+        pcall(function()
+            if State.ESPCache[player].gui then State.ESPCache[player].gui:Destroy() end
+            if State.ESPCache[player].highlight then State.ESPCache[player].highlight:Destroy() end
+        end)
+        State.ESPCache[player] = nil
+    end
+end
+
+local function createESP(player)
+    if player == lp then return end
+    local char = player.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+    local team, color = getTeamInfo(player)
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee = head
+    bb.Size = UDim2.new(0, 220, 0, 80)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    local text = Instance.new("TextLabel", bb)
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.TextSize = CONFIG.ESPTextSize
+    text.RichText = true
+    text.Font = Enum.Font.SourceSansBold
+    text.TextStrokeTransparency = 0
+    text.TextColor3 = color
+    text.Text = ""
+    bb.Parent = head
+    local highlight = nil
+    if CONFIG.ESPHighlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "SORU_HL"
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillColor = CONFIG.ESPHighlightColor
+        highlight.OutlineColor = CONFIG.ESPHighlightColor
+        highlight.FillTransparency = 0.5
+        highlight.Parent = char
+    end
+    State.ESPCache[player] = { gui = bb, label = text, char = char, highlight = highlight, lastUpdate = 0, data = {} }
+end
+
+local function updateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= lp then
+            local char = player.Character
+            local head = char and char:FindFirstChild("Head")
+            local cache = State.ESPCache[player]
+            if char and head then
+                if not cache or cache.char ~= char or not cache.gui.Parent then
+                    removeESP(player)
+                    createESP(player)
+                    cache = State.ESPCache[player]
+                end
+                if cache then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    local root = char:FindFirstChild("HumanoidRootPart")
+                    if hum and root and State.Root then
+                        local now = tick()
+                        if now - cache.lastUpdate > 3 then
+                            cache.lastUpdate = now
+                            pcall(function() cache.data.level = player.Data.Level.Value end)
+                            pcall(function() cache.data.fruit = player.Data.DevilFruit.Value end)
+                            pcall(function() cache.data.bounty = player.leaderstats["Bounty/Honor"].Value end)
+                        end
+                        local dist = math.floor((root.Position - State.Root.Position).Magnitude)
+                        local hp = math.floor((hum.Health / hum.MaxHealth) * 100)
+                        local team, color = getTeamInfo(player)
+                        local level = cache.data.level or "?"
+                        local fruit = cache.data.fruit or "None"
+                        local bounty = cache.data.bounty or 0
+                        local isPvpDisabled = player:GetAttribute("PvpDisabled") == true
+                        local pvpText = isPvpDisabled and "🟢 PvP Off" or "🔴 PvP On"
+                        local parts = {}
+                        if CONFIG.ESPTeam then parts[#parts+1] = "[" .. team .. "] " end
+                        if CONFIG.ESPName then parts[#parts+1] = "<font color=\"rgb(255,255,0)\">" .. player.Name .. "</font>" end
+                        if CONFIG.ESPLevel then parts[#parts+1] = " [Lv." .. level .. "]" end
+                        if CONFIG.ESPPvP then parts[#parts+1] = "\n" .. pvpText .. "\n" end
+                        if CONFIG.ESPFruit then parts[#parts+1] = "Fruit: " .. fruit .. "\n" end
+                        if CONFIG.ESPBounty then parts[#parts+1] = "Bounty: " .. math.floor(bounty / 1000000) .. "M\n" end
+                        if CONFIG.ESPDistance then parts[#parts+1] = dist .. " studs | " end
+                        if CONFIG.ESPHP then parts[#parts+1] = "HP: " .. hp .. "%" end
+                        cache.label.Text = table.concat(parts)
+                        cache.label.TextColor3 = color
+                        cache.label.TextSize = CONFIG.ESPTextSize
+                        if cache.highlight then
+                            cache.highlight.FillColor = CONFIG.ESPHighlightColor
+                            cache.highlight.OutlineColor = CONFIG.ESPHighlightColor
+                        end
+                    end
+                end
+            else
+                if cache then removeESP(player) end
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.15) do
+        if CONFIG.ESPEnabled then
+            pcall(updateESP)
+        else
+            for player in pairs(State.ESPCache) do removeESP(player) end
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(p) removeESP(p) end)
+
+-- ═══════════════════════════════════════════════════════════
+-- KILL FEED
+-- ═══════════════════════════════════════════════════════════
+local KillGui = Instance.new("ScreenGui")
+KillGui.Name = "SORU_KillFeed"
+KillGui.ResetOnSpawn = false
+pcall(function() KillGui.Parent = CoreGui end)
+if not KillGui.Parent then KillGui.Parent = lp:WaitForChild("PlayerGui") end
+
+local KillFrame = Instance.new("Frame", KillGui)
+KillFrame.Size = UDim2.new(0, 280, 0, 200)
+KillFrame.Position = UDim2.new(1, -300, 0, 100)
+KillFrame.BackgroundTransparency = 1
+
+local KillLayout = Instance.new("UIListLayout", KillFrame)
+KillLayout.SortOrder = Enum.SortOrder.LayoutOrder
+KillLayout.Padding = UDim.new(0, 4)
+
+local killCount = 0
+local function addKillEntry(text)
+    if not CONFIG.KillFeedEnable then return end
+    local entry = Instance.new("Frame", KillFrame)
+    entry.Size = UDim2.new(1, 0, 0, 26)
+    entry.BackgroundColor3 = Color3.fromRGB(15, 10, 12)
+    entry.BorderSizePixel = 0
+    Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", entry)
+    stroke.Color = CONFIG.ThemeColor
+    stroke.Thickness = 1
+    stroke.Transparency = 0.4
+    local lbl = Instance.new("TextLabel", entry)
+    lbl.Size = UDim2.new(1, -12, 1, 0)
+    lbl.Position = UDim2.new(0, 8, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(220, 255, 220)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    task.spawn(function()
+        task.wait(4)
+        TweenService:Create(entry, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(lbl, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+        task.wait(0.6)
+        entry:Destroy()
+    end)
+end
+
+task.spawn(function()
+    while task.wait(0.5) do
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp and p.Character then
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local last = State.PlayerLastHP[p]
+                    if last and last > 0 and hum.Health <= 0 then
+                        killCount = killCount + 1
+                        addKillEntry("[" .. killCount .. "] KILLED: " .. p.Name)
+                    end
+                    State.PlayerLastHP[p] = hum.Health
+                end
+            end
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- GUI
+-- ═══════════════════════════════════════════════════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SORU_SUITE_GUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = lp:WaitForChild("PlayerGui") end
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 340, 0, 560)
+Main.Position = UDim2.new(0, 20, 0.5, -280)
+Main.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+Main.BackgroundTransparency = 0.05
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.ClipsDescendants = true
+Main.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 14)
+
+local MainStroke = Instance.new("UIStroke", Main)
+MainStroke.Color = CONFIG.ThemeColor
+MainStroke.Thickness = 1.5
+MainStroke.Transparency = 0.4
+
+task.spawn(function()
+    while Main.Parent do
+        TweenService:Create(MainStroke, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Transparency = 0.05, Thickness = 2 }):Play()
+        task.wait(1.6)
+        TweenService:Create(MainStroke, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Transparency = 0.5, Thickness = 1.5 }):Play()
+        task.wait(1.6)
+    end
+end)
+
+local Header = Instance.new("Frame", Main)
+Header.Size = UDim2.new(1, 0, 0, 46)
+Header.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
+Header.BorderSizePixel = 0
+
+local HeaderFix = Instance.new("Frame", Header)
+HeaderFix.Size = UDim2.new(1, 0, 0, 12)
+HeaderFix.Position = UDim2.new(0, 0, 1, -12)
+HeaderFix.BackgroundColor3 = Header.BackgroundColor3
+HeaderFix.BorderSizePixel = 0
+
+local Title = Instance.new("TextLabel", Header)
+Title.Size = UDim2.new(1, -80, 0, 22)
+Title.Position = UDim2.new(0, 16, 0, 6)
+Title.BackgroundTransparency = 1
+Title.Text = "SORU SUITE v10"
+Title.TextColor3 = Color3.fromRGB(230, 230, 240)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+local Sub = Instance.new("TextLabel", Header)
+Sub.Size = UDim2.new(1, -80, 0, 12)
+Sub.Position = UDim2.new(0, 16, 1, -18)
+Sub.BackgroundTransparency = 1
+Sub.Text = "esp · hitbox · attack · silent · fruit (10 vec) · tp"
+Sub.TextColor3 = CONFIG.ThemeColor
+Sub.TextTransparency = 0.3
+Sub.Font = Enum.Font.Gotham
+Sub.TextSize = 9
+Sub.TextXAlignment = Enum.TextXAlignment.Left
+
+local Dot = Instance.new("Frame", Header)
+Dot.Size = UDim2.new(0, 6, 0, 6)
+Dot.Position = UDim2.new(1, -22, 0.5, -3)
+Dot.BackgroundColor3 = CONFIG.ThemeColor
+Dot.BorderSizePixel = 0
+Instance.new("UICorner", Dot).CornerRadius = UDim.new(1, 0)
+
+local TabBar = Instance.new("Frame", Main)
+TabBar.Size = UDim2.new(1, -20, 0, 28)
+TabBar.Position = UDim2.new(0, 10, 0, 54)
+TabBar.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+TabBar.BorderSizePixel = 0
+Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0, 8)
+
+local TabList = Instance.new("UIListLayout", TabBar)
+TabList.FillDirection = Enum.FillDirection.Horizontal
+TabList.Padding = UDim.new(0, 3)
+TabList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabList.VerticalAlignment = Enum.VerticalAlignment.Center
+
+local PageContainer = Instance.new("Frame", Main)
+PageContainer.Size = UDim2.new(1, -20, 1, -146)
+PageContainer.Position = UDim2.new(0, 10, 0, 90)
+PageContainer.BackgroundTransparency = 1
+
+local pages, tabButtons = {}, {}
+
+local function makePage()
+    local page = Instance.new("ScrollingFrame", PageContainer)
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 3
+    page.ScrollBarImageColor3 = CONFIG.ThemeColor
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Visible = false
+    local layout = Instance.new("UIListLayout", page)
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", page)
+    pad.PaddingRight = UDim.new(0, 6)
+    pad.PaddingBottom = UDim.new(0, 12)
+    return page
+end
+
+local function makeTab(name, order)
+    local btn = Instance.new("TextButton", TabBar)
+    btn.Size = UDim2.new(0, 0, 0, 22)
+    btn.AutomaticSize = Enum.AutomaticSize.X
+    btn.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(180, 180, 190)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 9
+    btn.LayoutOrder = order
+    local pad = Instance.new("UIPadding", btn)
+    pad.PaddingLeft = UDim.new(0, 9)
+    pad.PaddingRight = UDim.new(0, 9)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local page = makePage()
+    pages[name] = page
+    tabButtons[name] = btn
+    btn.MouseButton1Click:Connect(function()
+        for n, p in pairs(pages) do p.Visible = (n == name) end
+        for n, b in pairs(tabButtons) do
+            if n == name then
+                b.BackgroundColor3 = CONFIG.ThemeColor
+                b.TextColor3 = Color3.fromRGB(10, 10, 15)
+            else
+                b.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+                b.TextColor3 = Color3.fromRGB(180, 180, 190)
+            end
+        end
+    end)
+    return btn
+end
+
+local function section(parent, text, order)
+    local l = Instance.new("TextLabel", parent)
+    l.Size = UDim2.new(1, 0, 0, 16)
+    l.BackgroundTransparency = 1
+    l.Text = text:upper()
+    l.TextColor3 = CONFIG.ThemeColor
+    l.TextTransparency = 0.3
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 8
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.LayoutOrder = order
+end
+
+local function toggle(parent, label, key, order, onFn, offFn)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 32)
+    row.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -70, 1, 0)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(210, 210, 220)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    local sw = Instance.new("Frame", row)
+    sw.Size = UDim2.new(0, 40, 0, 20)
+    sw.Position = UDim2.new(1, -52, 0.5, -10)
+    sw.BackgroundColor3 = Color3.fromRGB(35, 35, 44)
+    sw.BorderSizePixel = 0
+    Instance.new("UICorner", sw).CornerRadius = UDim.new(1, 0)
+    local knob = Instance.new("Frame", sw)
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = UDim2.new(0, 3, 0.5, -7)
+    knob.BackgroundColor3 = Color3.fromRGB(150, 150, 160)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    local click = Instance.new("TextButton", row)
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.BackgroundTransparency = 1
+    click.Text = ""
+    click.ZIndex = 3
+    local function refresh()
+        if CONFIG[key] then
+            TweenService:Create(sw, TweenInfo.new(0.2), { BackgroundColor3 = CONFIG.ThemeColor }):Play()
+            TweenService:Create(knob, TweenInfo.new(0.2), { Position = UDim2.new(1, -17, 0.5, -7), BackgroundColor3 = Color3.new(1, 1, 1) }):Play()
+        else
+            TweenService:Create(sw, TweenInfo.new(0.2), { BackgroundColor3 = Color3.fromRGB(35, 35, 44) }):Play()
+            TweenService:Create(knob, TweenInfo.new(0.2), { Position = UDim2.new(0, 3, 0.5, -7), BackgroundColor3 = Color3.fromRGB(150, 150, 160) }):Play()
+        end
+    end
+    click.MouseButton1Click:Connect(function()
+        CONFIG[key] = not CONFIG[key]
+        refresh()
+        if CONFIG[key] and onFn then onFn() end
+        if not CONFIG[key] and offFn then offFn() end
+    end)
+    refresh()
+end
+
+local function slider(parent, label, key, min, max, order, onChanged)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 44)
+    row.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -20, 0, 14)
+    lbl.Position = UDim2.new(0, 12, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(210, 210, 220)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    local valLbl = Instance.new("TextLabel", row)
+    valLbl.Size = UDim2.new(1, -20, 0, 14)
+    valLbl.Position = UDim2.new(0, 12, 0, 4)
+    valLbl.BackgroundTransparency = 1
+    valLbl.Text = tostring(CONFIG[key])
+    valLbl.TextColor3 = CONFIG.ThemeColor
+    valLbl.Font = Enum.Font.GothamBold
+    valLbl.TextSize = 10
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    local bg = Instance.new("Frame", row)
+    bg.Size = UDim2.new(1, -24, 0, 4)
+    bg.Position = UDim2.new(0, 12, 1, -14)
+    bg.BackgroundColor3 = Color3.fromRGB(35, 35, 44)
+    bg.BorderSizePixel = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+    local fill = Instance.new("Frame", bg)
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = CONFIG.ThemeColor
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    local knob = Instance.new("Frame", bg)
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    knob.Position = UDim2.new(0, -6, 0.5, -6)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    local function setV(v)
+        v = math.clamp(v, min, max)
+        CONFIG[key] = v
+        local pct = (v - min) / (max - min)
+        fill.Size = UDim2.new(pct, 0, 1, 0)
+        knob.Position = UDim2.new(pct, -6, 0.5, -6)
+        valLbl.Text = tostring(math.floor(v * 1000) / 1000)
+        if onChanged then onChanged(v) end
+    end
+    setV(CONFIG[key])
+    local drag = false
+    local function fromInput(i)
+        local rel = (i.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X
+        setV(min + math.clamp(rel, 0, 1) * (max - min))
+    end
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            drag = true; fromInput(i)
+        end
+    end)
+    knob.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            drag = true
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            fromInput(i)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            drag = false
+        end
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- PAGES
+-- ═══════════════════════════════════════════════════════════
+makeTab("ESP", 1)
+makeTab("Combat", 2)
+makeTab("Fruit", 3)
+makeTab("Silent", 4)
+makeTab("TP", 5)
+
+-- ESP
+section(pages.ESP, "ESP", 1)
+toggle(pages.ESP, "Enable ESP", "ESPEnabled", 2)
+toggle(pages.ESP, "Show Name", "ESPName", 3)
+toggle(pages.ESP, "Show Level", "ESPLevel", 4)
+toggle(pages.ESP, "Show Bounty", "ESPBounty", 5)
+toggle(pages.ESP, "Show Fruit", "ESPFruit", 6)
+toggle(pages.ESP, "Show Distance", "ESPDistance", 7)
+toggle(pages.ESP, "Show HP", "ESPHP", 8)
+toggle(pages.ESP, "Show Team", "ESPTeam", 9)
+toggle(pages.ESP, "Show PvP State", "ESPPvP", 10)
+toggle(pages.ESP, "Highlight Players", "ESPHighlight", 11)
+slider(pages.ESP, "Text Size", "ESPTextSize", 8, 24, 12)
+
+-- Combat
+section(pages.Combat, "Fast Attack (Melee)", 1)
+toggle(pages.Combat, "⚔️ Enable Attack", "AttackEnable", 2, startAttack, stopAttack)
+slider(pages.Combat, "🎯 Attack Range", "AttackRange", 20, 500, 3)
+slider(pages.Combat, "⏱️ Attack Delay", "AttackDelay", 0.05, 0.5, 4)
+toggle(pages.Combat, "🤖 Target NPCs", "TargetNPCs", 5)
+toggle(pages.Combat, "👤 Target Players", "TargetPlayers", 6)
+
+section(pages.Combat, "Hitbox", 7)
+toggle(pages.Combat, "Enable Hitbox", "HitboxEnabled", 8, startHitbox, stopHitbox)
+slider(pages.Combat, "Hitbox Size", "HitboxSize", 1, 30, 9)
+toggle(pages.Combat, "Include NPCs", "HitboxNPCs", 10)
+toggle(pages.Combat, "Team Check", "HitboxTeamCheck", 11)
+
+section(pages.Combat, "Infinite Flashstep", 12)
+toggle(pages.Combat, "Enable Inf Flashstep", "InfFlashstep", 13)
+
+section(pages.Combat, "Kill Feed", 14)
+toggle(pages.Combat, "Enable Kill Feed", "KillFeedEnable", 15)
+
+-- Fruit Tab — كل شي جديد
+section(pages.Fruit, "🍎 Fruit M1 — 10 Vectors", 1)
+toggle(pages.Fruit, "Enable Fruit M1", "FruitM1Enabled", 2, startFruitM1, stopFruitM1)
+slider(pages.Fruit, "Interval", "FruitM1Interval", 0.05, 1.0, 3)
+slider(pages.Fruit, "Range", "FruitM1Range", 50, 1000, 4)
+slider(pages.Fruit, "Combo", "FruitCombo", 1, 10, 5)
+toggle(pages.Fruit, "Target NPCs", "FruitM1TargetNPCs", 6)
+toggle(pages.Fruit, "Target Players", "FruitM1TargetPlayers", 7)
+
+-- ═══ Vector Selection Title ═══
+local vecTitle = Instance.new("TextLabel", pages.Fruit)
+vecTitle.Size = UDim2.new(1, 0, 0, 14)
+vecTitle.BackgroundTransparency = 1
+vecTitle.Text = "─── CHOOSE VECTOR ───"
+vecTitle.TextColor3 = Color3.fromRGB(180, 140, 180)
+vecTitle.Font = Enum.Font.GothamBold
+vecTitle.TextSize = 9
+vecTitle.TextXAlignment = Enum.TextXAlignment.Center
+vecTitle.LayoutOrder = 8
+
+-- ═══ Vector Buttons (10) ═══
+local vectorButtons = {}
+
+local function highlightVector(idx)
+    for i, btn in ipairs(vectorButtons) do
+        if i == idx then
+            btn.BackgroundColor3 = Color3.fromRGB(100, 30, 50)
+            btn.TextColor3 = Color3.fromRGB(255, 220, 220)
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(22, 16, 22)
+            btn.TextColor3 = Color3.fromRGB(220, 200, 220)
+        end
+    end
+end
+
+for i, vec in ipairs(VECTORS) do
+    local btn = Instance.new("TextButton", pages.Fruit)
+    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(22, 16, 22)
+    btn.BorderSizePixel = 0
+    btn.Text = vec.icon .. "  " .. vec.name .. "  —  " .. vec.desc
+    btn.TextColor3 = Color3.fromRGB(220, 200, 220)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.LayoutOrder = 9 + i
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local btnStroke = Instance.new("UIStroke", btn)
+    btnStroke.Color = Color3.fromRGB(80, 40, 80)
+    btnStroke.Thickness = 1
+
+    btn.MouseButton1Click:Connect(function()
+        CONFIG.FruitVectorIdx = i
+        CONFIG.FruitAutoCycle = false
+        autoCycleBtn.Text = "🎲 AUTO CYCLE: OFF"
+        autoCycleBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 50)
+        highlightVector(i)
+        print("[SORU] Vector: " .. vec.name)
+    end)
+
+    table.insert(vectorButtons, btn)
+end
+highlightVector(1)
+
+-- ═══ Auto Cycle Button ═══
+local autoCycleBtn = Instance.new("TextButton", pages.Fruit)
+autoCycleBtn.Size = UDim2.new(1, 0, 0, 28)
+autoCycleBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 50)
+autoCycleBtn.BorderSizePixel = 0
+autoCycleBtn.Text = "🎲 AUTO CYCLE: OFF"
+autoCycleBtn.TextColor3 = Color3.fromRGB(255, 220, 255)
+autoCycleBtn.Font = Enum.Font.GothamBold
+autoCycleBtn.TextSize = 10
+autoCycleBtn.LayoutOrder = 30
+Instance.new("UICorner", autoCycleBtn).CornerRadius = UDim.new(0, 6)
+
+autoCycleBtn.MouseButton1Click:Connect(function()
+    CONFIG.FruitAutoCycle = not CONFIG.FruitAutoCycle
+    autoCycleBtn.Text = "🎲 AUTO CYCLE: " .. (CONFIG.FruitAutoCycle and "ON" or "OFF")
+    autoCycleBtn.BackgroundColor3 = CONFIG.FruitAutoCycle and Color3.fromRGB(50, 90, 60) or Color3.fromRGB(40, 30, 50)
+end)
+
+slider(pages.Fruit, "Cycle Speed (per hits)", "FruitCycleSpeed", 1, 20, 31)
+
+_G.SORU_UpdateVectorUI = function()
+    highlightVector(CONFIG.FruitVectorIdx)
+end
+
+-- Silent
+section(pages.Silent, "Silent Aim (namecall)", 1)
+toggle(pages.Silent, "Enable Silent Aim", "SilentAimEnabled", 2, refreshSilentAim, refreshSilentAim)
+toggle(pages.Silent, "Target Players", "SilentAimPlayers", 3)
+toggle(pages.Silent, "Target NPCs", "SilentAimNPCs", 4)
+toggle(pages.Silent, "Velocity Prediction", "SilentAimPrediction", 5)
+toggle(pages.Silent, "Spoof Z-Skills + M1", "SilentAimZSkillM1", 6)
+toggle(pages.Silent, "Highlight Target", "SilentAimHighlight", 7)
+
+section(pages.Silent, "SORU AIM (mouse.__index)", 8)
+toggle(pages.Silent, "Enable SORU AIM", "SORU_AimEnabled", 9, refreshSilentAim, refreshSilentAim)
+
+section(pages.Silent, "Tuning", 10)
+slider(pages.Silent, "Max Range", "SilentAimMaxRange", 100, 5000, 11)
+slider(pages.Silent, "Prediction Amount", "SilentAimPredAmount", 0.0, 0.5, 12)
+
+-- TP
+local warningLabel = Instance.new("TextLabel", pages.TP)
+warningLabel.Size = UDim2.new(1, 0, 0, 60)
+warningLabel.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
+warningLabel.BorderSizePixel = 0
+warningLabel.Text = "⚠️ UNSTABLE FEATURE ⚠️\n\nOnly works within 1000 studs\nMay cause kick/rollback"
+warningLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+warningLabel.Font = Enum.Font.GothamBold
+warningLabel.TextSize = 10
+warningLabel.TextWrapped = true
+warningLabel.LayoutOrder = 0
+Instance.new("UICorner", warningLabel).CornerRadius = UDim.new(0, 8)
+local warnStroke = Instance.new("UIStroke", warningLabel)
+warnStroke.Color = Color3.fromRGB(255, 100, 50)
+warnStroke.Thickness = 1.5
+
+section(pages.TP, "Instant TP", 1)
+toggle(pages.TP, "🚀 Enable Instant TP", "TpEnabled", 2, startTpLoop, stopTpLoop)
+slider(pages.TP, "TP Max Distance", "TpMaxDistance", 100, 1000, 3)
+slider(pages.TP, "TP Interval (s)", "TpInterval", 0.05, 1.0, 4)
+
+local targetInfoLbl = Instance.new("TextLabel", pages.TP)
+targetInfoLbl.Size = UDim2.new(1, 0, 0, 22)
+targetInfoLbl.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+targetInfoLbl.BorderSizePixel = 0
+targetInfoLbl.Text = "Target: None"
+targetInfoLbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+targetInfoLbl.Font = Enum.Font.GothamBold
+targetInfoLbl.TextSize = 10
+targetInfoLbl.LayoutOrder = 5
+Instance.new("UICorner", targetInfoLbl).CornerRadius = UDim.new(0, 6)
+
+local refreshBtn = Instance.new("TextButton", pages.TP)
+refreshBtn.Size = UDim2.new(1, 0, 0, 28)
+refreshBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+refreshBtn.BorderSizePixel = 0
+refreshBtn.Text = "🔄 Refresh Player List"
+refreshBtn.TextColor3 = Color3.fromRGB(220, 220, 240)
+refreshBtn.Font = Enum.Font.GothamBold
+refreshBtn.TextSize = 10
+refreshBtn.LayoutOrder = 6
+Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0, 6)
+
+local tpScroll = Instance.new("ScrollingFrame", pages.TP)
+tpScroll.Size = UDim2.new(1, 0, 0, 220)
+tpScroll.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+tpScroll.BorderSizePixel = 0
+tpScroll.ScrollBarThickness = 3
+tpScroll.ScrollBarImageColor3 = CONFIG.ThemeColor
+tpScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+tpScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+tpScroll.LayoutOrder = 7
+Instance.new("UICorner", tpScroll).CornerRadius = UDim.new(0, 6)
+
+local tpListLayout = Instance.new("UIListLayout", tpScroll)
+tpListLayout.Padding = UDim.new(0, 3)
+tpListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local tpPlayerButtons = {}
+
+local function refreshTpList()
+    for _, btn in ipairs(tpPlayerButtons) do
+        if btn and btn.Parent then btn:Destroy() end
+    end
+    tpPlayerButtons = {}
+
+    local list = getTpPlayerList()
+    for i, info in ipairs(list) do
+        local btn = Instance.new("TextButton", tpScroll)
+        btn.Size = UDim2.new(1, -6, 0, 28)
+        btn.BackgroundColor3 = info.inRange and Color3.fromRGB(30, 50, 40) or Color3.fromRGB(50, 30, 30)
+        btn.BorderSizePixel = 0
+        btn.Text = ""
+        btn.LayoutOrder = i
+        btn.AutoButtonColor = false
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+        local nameLbl = Instance.new("TextLabel", btn)
+        nameLbl.Size = UDim2.new(0.55, 0, 1, 0)
+        nameLbl.Position = UDim2.new(0, 8, 0, 0)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = info.name
+        nameLbl.TextColor3 = info.inRange and Color3.fromRGB(200, 255, 200) or Color3.fromRGB(255, 180, 180)
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 10
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local hpLbl = Instance.new("TextLabel", btn)
+        hpLbl.Size = UDim2.new(0.22, 0, 1, 0)
+        hpLbl.Position = UDim2.new(0.55, 0, 0, 0)
+        hpLbl.BackgroundTransparency = 1
+        hpLbl.Text = info.health .. " HP"
+        hpLbl.TextColor3 = Color3.fromRGB(200, 100, 100)
+        hpLbl.Font = Enum.Font.Gotham
+        hpLbl.TextSize = 9
+
+        local distLbl = Instance.new("TextLabel", btn)
+        distLbl.Size = UDim2.new(0.22, 0, 1, 0)
+        distLbl.Position = UDim2.new(0.77, 0, 0, 0)
+        distLbl.BackgroundTransparency = 1
+        distLbl.Text = info.distance .. "m"
+        distLbl.TextColor3 = info.inRange and Color3.fromRGB(150, 255, 150) or Color3.fromRGB(255, 100, 100)
+        distLbl.Font = Enum.Font.GothamBold
+        distLbl.TextSize = 9
+
+        btn.MouseButton1Click:Connect(function()
+            selectTpTarget(info.player)
+            for _, b in ipairs(tpPlayerButtons) do
+                if b:IsA("TextButton") then
+                    b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                end
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(30, 80, 100)
+        end)
+
+        if State.TpTarget == info.player then
+            btn.BackgroundColor3 = Color3.fromRGB(30, 80, 100)
+        end
+
+        table.insert(tpPlayerButtons, btn)
+    end
+end
+
+refreshTpList()
+refreshBtn.MouseButton1Click:Connect(refreshTpList)
+
+local clearTpBtn = Instance.new("TextButton", pages.TP)
+clearTpBtn.Size = UDim2.new(1, 0, 0, 24)
+clearTpBtn.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+clearTpBtn.BorderSizePixel = 0
+clearTpBtn.Text = "✖ Clear Target"
+clearTpBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+clearTpBtn.Font = Enum.Font.GothamBold
+clearTpBtn.TextSize = 10
+clearTpBtn.LayoutOrder = 8
+Instance.new("UICorner", clearTpBtn).CornerRadius = UDim.new(0, 6)
+clearTpBtn.MouseButton1Click:Connect(function()
+    clearTpTarget()
+    refreshTpList()
+end)
+
+task.spawn(function()
+    while pages.TP and pages.TP.Parent do
+        task.wait(3)
+        pcall(refreshTpList)
+    end
+end)
+
+task.spawn(function()
+    while pages.TP and pages.TP.Parent do
+        task.wait(0.3)
+        pcall(function()
+            if State.TpTargetName then
+                targetInfoLbl.Text = "Target: " .. State.TpTargetName
+                targetInfoLbl.TextColor3 = Color3.fromRGB(100, 255, 100)
+            else
+                targetInfoLbl.Text = "Target: None"
+                targetInfoLbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+            end
+        end)
+    end
+end)
+
+-- Entrance
+Main.Size = UDim2.new(0, 0, 0, 0)
+Main.Position = UDim2.new(0.5, -170, 0.5, -280)
+TweenService:Create(Main, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+    { Size = UDim2.new(0, 340, 0, 560), Position = UDim2.new(0, 20, 0.5, -280) }):Play()
+
+tabButtons.ESP.MouseButton1Click:Fire()
+
+print("[SORU SUITE v10] loaded")
+print("[Fruit] 10 Vectors ready")
+print("[Instant TP] ⚠️ Only works within 1000 studs")
